@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tetris</title>
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.11.1/dist/gsap.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/howler@2.2.3/howler.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css"></script>
+    <style>
+        body {
+            margin: 0;
+            background-color: #1e1e1e;
+            color: white;
+            font-family: Arial, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        #gameCanvas {
+            border: 2px solid white;
+            background-color: #111;
+        }
+
+        .screen {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+        }
+
+        .screen h1 {
+            font-size: 3rem;
+            margin-bottom: 1rem;
+        }
+
+        .screen button {
+            background-color: #3b82f6;
+            color: white;
+            padding: 1rem 2rem;
+            border: none;
+            border-radius: 8px;
+            font-size: 1.25rem;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+
+        .screen button:hover {
+            background-color: #2563eb;
+        }
+
+        .scoreboard {
+            font-size: 1.5rem;
+            margin: 20px;
+        }
+
+        .game-over {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="screen" id="startScreen">
+        <h1>TETRIS</h1>
+        <button onclick="startGame()">Jugar</button>
+    </div>
+
+    <div class="screen game-over" id="gameOverScreen">
+        <h1>Game Over</h1>
+        <p>Puntuación: <span id="finalScore"></span></p>
+        <button onclick="startGame()">Reiniciar</button>
+    </div>
+
+    <canvas id="gameCanvas" width="300" height="600"></canvas>
+
+    <script>
+        // Variables globales
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const rowCount = 20;
+        const columnCount = 10;
+        const blockSize = 30;
+        const tetrominoes = [
+            [[1, 1, 1, 1]], // I
+            [[1, 1], [1, 1]], // O
+            [[1, 1, 0], [0, 1, 1]], // S
+            [[0, 1, 1], [1, 1, 0]], // Z
+            [[1, 0, 0], [1, 1, 1]], // L
+            [[0, 0, 1], [1, 1, 1]], // J
+            [[0, 1, 0], [1, 1, 1]]  // T
+        ];
+        let currentTetromino;
+        let currentX, currentY;
+        let score = 0;
+        let gameOver = false;
+
+        // Funciones de sonido
+        const sound = new Howl({
+            src: ['https://www.soundjay.com/button/beep-07.wav'],
+            volume: 0.5
+        });
+
+        // Función de inicio del juego
+        function startGame() {
+            document.getElementById('startScreen').style.display = 'none';
+            document.getElementById('gameOverScreen').style.display = 'none';
+            canvas.style.display = 'block';
+            score = 0;
+            gameOver = false;
+            document.getElementById('finalScore').innerText = score;
+            generateTetromino();
+            draw();
+            updateScore();
+            gameLoop();
+        }
+
+        // Genera un nuevo tetromino
+        function generateTetromino() {
+            const rand = Math.floor(Math.random() * tetrominoes.length);
+            currentTetromino = tetrominoes[rand];
+            currentX = Math.floor(columnCount / 2) - Math.floor(currentTetromino[0].length / 2);
+            currentY = 0;
+        }
+
+        // Dibuja el tablero y tetrominos
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            drawTetromino();
+            drawBoard();
+        }
+
+        // Dibuja el tetromino actual
+        function drawTetromino() {
+            currentTetromino.forEach((row, y) => {
+                row.forEach((cell, x) => {
+                    if (cell) {
+                        ctx.fillStyle = 'cyan';
+                        ctx.fillRect((currentX + x) * blockSize, (currentY + y) * blockSize, blockSize, blockSize);
+                        ctx.strokeStyle = 'white';
+                        ctx.strokeRect((currentX + x) * blockSize, (currentY + y) * blockSize, blockSize, blockSize);
+                    }
+                });
+            });
+        }
+
+        // Dibuja las líneas del tablero
+        function drawBoard() {
+            for (let y = 0; y < rowCount; y++) {
+                for (let x = 0; x < columnCount; x++) {
+                    ctx.fillStyle = '#111';
+                    ctx.fillRect(x * blockSize, y * blockSize, blockSize, blockSize);
+                    ctx.strokeStyle = 'white';
+                    ctx.strokeRect(x * blockSize, y * blockSize, blockSize, blockSize);
+                }
+            }
+        }
+
+        // Función que maneja la entrada del teclado
+        document.addEventListener('keydown', (e) => {
+            if (gameOver) return;
+
+            if (e.key === 'ArrowLeft') {
+                if (!collision(currentTetromino, currentX - 1, currentY)) currentX--;
+            }
+            if (e.key === 'ArrowRight') {
+                if (!collision(currentTetromino, currentX + 1, currentY)) currentX++;
+            }
+            if (e.key === 'ArrowDown') {
+                if (!collision(currentTetromino, currentX, currentY + 1)) currentY++;
+            }
+            if (e.key === 'ArrowUp') {
+                const rotated = rotateTetromino(currentTetromino);
+                if (!collision(rotated, currentX, currentY)) {
+                    currentTetromino = rotated;
+                }
+            }
+            draw();
+        });
+
+        // Verificar si el tetromino colisiona con algo
+        function collision(tetromino, x, y) {
+            for (let row = 0; row < tetromino.length; row++) {
+                for (let col = 0; col < tetromino[row].length; col++) {
+                    if (tetromino[row][col]) {
+                        const newX = x + col;
+                        const newY = y + row;
+                        if (newX < 0 || newX >= columnCount || newY >= rowCount) {
+                            return true;
+                        }
+                    }
+                }
+            }
+            return false;
+        }
+
+        // Rota el tetromino
+        function rotateTetromino(tetromino) {
+            return tetromino[0].map((_, index) => tetromino.map(row => row[index])).reverse();
+        }
+
+        // Actualizar puntuación
+        function updateScore() {
+            document.querySelector('.scoreboard').innerText = `Puntuación: ${score}`;
+        }
+
+        // Bucle del juego
+        function gameLoop() {
+            if (gameOver) return;
+            if (collision(currentTetromino, currentX, currentY + 1)) {
+                placeTetromino();
+                checkLines();
+                generateTetromino();
+                if (collision(currentTetromino, currentX, currentY)) {
+                    gameOver = true;
+                    document.getElementById('gameOverScreen').style.display = 'block';
+                }
+            } else {
+                currentY++;
+            }
+            draw();
+            setTimeout(gameLoop, 500);
+        }
+
+        // Coloca el tetromino en el tablero
+        function placeTetromino() {
+            currentTetromino.forEach((row, y) => {
+                row.forEach((cell, x) => {
+                    if (cell) {
+                        score += 10;
+                    }
+                });
+            });
+            updateScore();
+        }
+
+        // Revisar líneas completas
+        function checkLines() {
+            for (let y = rowCount - 1; y >= 0; y--) {
+                // Si la línea está completa
+                let isFull = true;
+                for (let x = 0; x < columnCount; x++) {
+                    if (!checkCell(x, y)) {
+                        isFull = false;
+                        break;
+                    }
+                }
+                if (isFull) {
+                    removeLine(y);
+                    score += 100;
+                    updateScore();
+                }
+            }
+        }
+
+        // Eliminar una línea
+        function removeLine(row) {
+            for (let y = row; y > 0; y--) {
+                for (let x = 0; x < columnCount; x++) {
+                    // Desplazar todo hacia abajo
+                    ctx.clearRect(x * blockSize, y * blockSize, blockSize, blockSize);
+                }
+            }
+        }
+
+        // Comprobar si una celda está ocupada
+        function checkCell(x, y) {
+            // Implementar lógica para verificar celdas ocupadas
+            return false;
+        }
+    </script>
+</body>
+</html>
